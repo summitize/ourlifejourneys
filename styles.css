@@ -105,6 +105,7 @@ a {
     font-weight: 700;
     background: var(--gradient-text);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     cursor: pointer;
@@ -295,15 +296,44 @@ a {
     }
 }
 
-.hero-content {
-    max-width: 600px;
+.hero-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4rem;
+    text-align: left;
+    height: 100%;
     z-index: 1;
 }
 
+.hero-content {
+    flex: 1;
+    max-width: 600px;
+}
+
+.hero-image {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    animation: float 6s infinite ease-in-out;
+}
+
+.hero-image img {
+    width: 100%;
+    max-width: 500px;
+    height: auto;
+    border-radius: 30px;
+    box-shadow: var(--shadow-hover);
+    border: 1px solid rgba(255, 107, 53, 0.2);
+    filter: drop-shadow(0 0 30px rgba(255, 107, 53, 0.3));
+}
+
 .hero-title {
-    font-size: clamp(3rem, 10vw, 6rem);
+    font-size: clamp(2.5rem, 6vw, 5rem);
     margin-bottom: 2rem;
-    line-height: 1;
+    line-height: 1.1;
     font-weight: 900;
     letter-spacing: -2px;
     background: var(--gradient-text);
@@ -314,13 +344,10 @@ a {
 }
 
 .hero-subtitle {
-    font-size: clamp(1.1rem, 2vw, 1.5rem);
+    font-size: clamp(1rem, 1.5vw, 1.25rem);
     color: var(--text-secondary);
     margin-bottom: 3.5rem;
     font-weight: 500;
-    max-width: 800px;
-    margin-left: auto;
-    margin-right: auto;
 }
 
 .hero-buttons {
@@ -492,6 +519,7 @@ a {
     margin-bottom: 1rem;
     background: var(--gradient-text);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
