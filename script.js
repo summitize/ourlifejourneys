@@ -1,15 +1,31 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // Smooth scrolling for navigation links
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-        anchor.addEventListener('click', function (e) {
-            e.preventDefault();
-            const target = document.querySelector(this.getAttribute('href'));
-            if (target) {
-                target.scrollIntoView({
-                    behavior: 'smooth'
-                });
-            }
-        });
+async function loadComponent(id, file) {
+    const element = document.getElementById(id);
+    if (!element) return;
+
+    try {
+        const response = await fetch(file);
+        const html = await response.text();
+        element.innerHTML = html;
+
+        if (id === 'header-placeholder') {
+            initializeNavigation();
+        }
+    } catch (error) {
+        console.error(`Error loading component ${file}:`, error);
+    }
+}
+
+function initializeNavigation() {
+    const currentPath = window.location.pathname.split('/').pop() || 'index.html';
+    const navLinks = document.querySelectorAll('.nav-link, .dropdown-item, .footer-group a');
+
+    navLinks.forEach(link => {
+        const href = link.getAttribute('href');
+        if (href === currentPath) {
+            link.classList.add('active');
+        } else {
+            link.classList.remove('active');
+        }
     });
 
     // Mobile Menu Toggle
@@ -33,6 +49,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 dropdown.classList.toggle('open');
             }
         });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Load components
+    loadComponent('header-placeholder', 'components/header.html');
+    loadComponent('footer-placeholder', 'components/footer.html');
+
+    // Smooth scrolling for navigation links (using event delegation for dynamic links)
+    document.addEventListener('click', (e) => {
+        if (e.target.tagName === 'A' && e.target.getAttribute('href')?.startsWith('#')) {
+            e.preventDefault();
+            const target = document.querySelector(e.target.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({
+                    behavior: 'smooth'
+                });
+            }
+        }
     });
 
     // Scroll Animation Observer
