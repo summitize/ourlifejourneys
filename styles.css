@@ -318,38 +318,62 @@ a {
     justify-content: center;
     align-items: center;
     min-width: 300px;
-    min-height: 400px;
+    min-height: 500px;
     position: relative;
-    animation: float 6s infinite ease-in-out;
-    border-radius: 30px;
+    border-radius: 40px;
+    overflow: hidden;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-hover);
+    border: 1px solid rgba(255, 107, 53, 0.1);
 }
 
-.hero-image.img-failed {
-    background: var(--gradient-primary);
-    opacity: 0.2;
-    border: 2px dashed var(--color-orange);
+/* Glassmorphism spheres for a premium look */
+.hero-image::before,
+.hero-image::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(40px);
+    z-index: 0;
+    animation: float 10s infinite ease-in-out;
 }
 
-.hero-image.img-failed::after {
-    content: '🌅';
-    font-size: 5rem;
-    opacity: 0.5;
+.hero-image::before {
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(255, 107, 53, 0.4) 0%, transparent 70%);
+    top: -10%;
+    right: -10%;
+}
+
+.hero-image::after {
+    width: 250px;
+    height: 250px;
+    background: radial-gradient(circle, rgba(0, 180, 216, 0.3) 0%, transparent 70%);
+    bottom: -10%;
+    left: -10%;
+    animation-delay: -5s;
 }
 
 .hero-image img {
     width: 100%;
-    max-width: 600px;
-    height: auto;
-    border-radius: 30px;
-    box-shadow: var(--shadow-hover);
-    border: 2px solid rgba(255, 107, 53, 0.3);
-    filter: drop-shadow(0 0 30px rgba(255, 107, 53, 0.4));
-    background: rgba(255, 107, 53, 0.1);
-    /* Fallback */
-    display: block;
+    height: 100%;
+    object-fit: cover;
+    z-index: 2;
+    transition: var(--transition);
+    position: relative;
 }
 
-.hero-title {
+.hero-image.img-failed::after {
+    content: '✈️';
+    font-size: 8rem;
+    position: absolute;
+    z-index: 1;
+    filter: drop-shadow(0 0 30px rgba(255, 107, 53, 0.5));
+    animation: float 4s infinite ease-in-out;
+}
+
+spinning off footer-links into footer-groups and footer-group style later .hero-title {
     font-size: clamp(2.5rem, 6vw, 5rem);
     margin-bottom: 2rem;
     line-height: 1.1;
