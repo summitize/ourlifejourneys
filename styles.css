@@ -318,8 +318,22 @@ a {
     justify-content: center;
     align-items: center;
     min-width: 300px;
+    min-height: 400px;
     position: relative;
     animation: float 6s infinite ease-in-out;
+    border-radius: 30px;
+}
+
+.hero-image.img-failed {
+    background: var(--gradient-primary);
+    opacity: 0.2;
+    border: 2px dashed var(--color-orange);
+}
+
+.hero-image.img-failed::after {
+    content: '🌅';
+    font-size: 5rem;
+    opacity: 0.5;
 }
 
 .hero-image img {
