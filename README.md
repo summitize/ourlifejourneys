@@ -1,1 +1,3 @@
-# WanderToWonder spinning off footer-links into footer-groups and footer-group style later
+# WanderToWonder
+
+Personal travelogue sharing experiences from journeys across the globe.
