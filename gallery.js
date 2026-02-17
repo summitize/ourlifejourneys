@@ -14,6 +14,31 @@ class PhotoGallery {
         }
     }
 
+    static async fromLocal(jsonPath, containerId) {
+        const gallery = new PhotoGallery([], containerId);
+        const container = document.getElementById(containerId);
+
+        try {
+            const response = await fetch(jsonPath);
+            if (!response.ok) throw new Error('Local manifest not found');
+            const data = await response.json();
+
+            gallery.photos = data.map(photo => ({
+                src: photo.src,
+                title: photo.title || photo.name.split('.')[0].replace(/-/g, ' '),
+                description: photo.description || 'Captured during the Australian journey.'
+            }));
+
+            gallery.init();
+            return gallery;
+        } catch (error) {
+            console.error("Local load failed:", error);
+            if (container) {
+                container.innerHTML = `<p class="error">Wait! We couldn't find the cached images. Please run the sync script.</p>`;
+            }
+        }
+    }
+
     static async fromOneDrive(shareLink, containerId) {
         // Create an empty gallery first (with loading state potentially)
         const gallery = new PhotoGallery([], containerId);

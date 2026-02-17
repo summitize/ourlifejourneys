@@ -30,11 +30,9 @@
 
     <script src="gallery.js"></script>
     <script>
-        // Use the OneDrive shared album for Australia
-        const AUSTRALIA_LINK = "https://1drv.ms/a/c/97c5e937e7e76f1c/IgAdpW4YCcYNRaVSD1LgqJZpATYP0xKXm44REXTqb0BANCc";
-
-        // Initialize dynamic gallery
-        PhotoGallery.fromOneDrive(AUSTRALIA_LINK, 'australia-gallery');
+        // We use a "Local Cache" approach for reliability (Server-side static cache)
+        // Run 'python scripts/sync-gallery.py' to update these images
+        PhotoGallery.fromLocal('data/australia.json', 'australia-gallery');
     </script>
     <script src="script.js"></script>
 </body>
