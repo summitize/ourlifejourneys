@@ -17,8 +17,11 @@ class PhotoGallery {
     static async fromOneDrive(shareLink, containerId) {
         // Create an empty gallery first (with loading state potentially)
         const gallery = new PhotoGallery([], containerId);
+        const container = document.getElementById(containerId);
 
         try {
+            if (container) container.innerHTML = '<p class="loading" style="text-align:center; padding: 2rem;">Loading from OneDrive...</p>';
+
             // Step 1: Encode the URL to a share ID
             const base64Value = btoa(shareLink)
                 .replace(/\//g, '_')
@@ -28,27 +31,50 @@ class PhotoGallery {
             const apiUrl = `https://api.onedrive.com/v1.0/shares/u!${base64Value}/root/children`;
 
             const response = await fetch(apiUrl);
-            if (!response.ok) throw new Error('OneDrive API failed');
+
+            if (response.status === 401 || response.status === 403) {
+                throw new Error('Access Restricted: OneDrive "Albums" are private by default. Please share the **Folder** instead.');
+            }
+
+            if (!response.ok) throw new Error(`OneDrive API Error: ${response.status}`);
 
             const data = await response.json();
 
             // Step 2: Map to gallery format
-            gallery.photos = data.value
+            gallery.photos = (data.value || [])
                 .filter(item => item.image || item.file?.mimeType?.startsWith('image/'))
                 .map(item => ({
                     src: item["@content.downloadUrl"],
-                    title: item.name.split('.')[0].replace(/-/g, ' '),
+                    title: item.name.split('.')[0].replace(/-/g, ' ').replace(/_/g, ' '),
                     description: `Captured during the Australia journey.`
                 }));
 
+            if (gallery.photos.length === 0) {
+                throw new Error('No images found in the shared folder.');
+            }
+
             // Step 3: Initialize with new data
+            if (container) container.innerHTML = ''; // Clear loading
             gallery.init();
             return gallery;
         } catch (error) {
             console.error("Failed to load OneDrive Album:", error);
-            const container = document.getElementById(containerId);
             if (container) {
-                container.innerHTML = `<p class="error">Oops! Failed to load the Australia album. Please check your connection.</p>`;
+                container.innerHTML = `
+                    <div class="gallery-error" style="padding: 3rem; text-align: center; background: var(--bg-secondary); border-radius: 24px; border: 1px solid var(--color-coral); margin: 2rem 0;">
+                        <h3 style="color: var(--color-coral); margin-bottom: 1rem;">Gallery Connection Issue</h3>
+                        <p style="margin-bottom: 2rem; color: var(--text-primary);">${error.message}</p>
+                        <div style="background: var(--bg-card); padding: 2rem; border-radius: 16px; font-size: 0.95rem; text-align: left; box-shadow: var(--shadow-soft);">
+                            <strong style="color: var(--color-primary); display: block; margin-bottom: 0.5rem;">How to fix this:</strong>
+                            <ol style="padding-left: 1.2rem; line-height: 1.8;">
+                                <li>Go to the <strong>Folder</strong> containing the photos (not the Album view).</li>
+                                <li>Click <strong>Share</strong> &rarr; <strong>Copy Link</strong>.</li>
+                                <li>Ensure it is set to <strong>"Anyone with the link can view"</strong>.</li>
+                                <li>Replace the link in your <code>australia.html</code> file.</li>
+                            </ol>
+                        </div>
+                    </div>
+                `;
             }
         }
     }
