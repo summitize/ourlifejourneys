@@ -1,61 +1,89 @@
-import os
+import argparse
 import json
 import shutil
+from pathlib import Path
 
-# CONFIGURATION
-SOURCE_FOLDER = r"C:\Users\Sumeet.Boob\OneDrive - Brillio\Pictures\Australia" # Update this path!
-TARGET_IMAGE_DIR = "../images/australia"
-TARGET_JSON_PATH = "../data/australia.json"
 
-def sync_gallery():
-    print("🚀 Starting Australia Gallery Sync...")
-    
-    # 1. Ensure target directory exists
-    if not os.path.exists(TARGET_IMAGE_DIR):
-        os.makedirs(TARGET_IMAGE_DIR)
-        print(f"Created directory: {TARGET_IMAGE_DIR}")
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
-    # 2. Get images from source
-    if not os.path.exists(SOURCE_FOLDER):
-        print(f"❌ ERROR: Source folder not found: {SOURCE_FOLDER}")
-        print("Please edit 'scripts/sync-gallery.py' with the correct path to your photos.")
-        return
+
+def to_title(file_name: str, fallback: str) -> str:
+    stem = Path(file_name).stem.replace("-", " ").replace("_", " ").strip()
+    return stem if stem else fallback
+
+
+def collect_images(source_dir: Path) -> list[Path]:
+    files = [p for p in source_dir.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS]
+    files.sort(key=lambda p: p.name.lower())
+    return files
+
+
+def sync_gallery(source_dir: Path, trip: str, max_files: int | None = None) -> tuple[int, Path, Path]:
+    project_root = Path(__file__).resolve().parent.parent
+    target_image_dir = project_root / "images" / trip
+    target_json_path = project_root / "data" / f"{trip}.json"
+
+    target_image_dir.mkdir(parents=True, exist_ok=True)
+    target_json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    files = collect_images(source_dir)
+    if max_files is not None:
+        files = files[:max_files]
+    if not files:
+        raise ValueError(
+            "No supported image files found. Expected one of: "
+            + ", ".join(sorted(SUPPORTED_EXTENSIONS))
+        )
 
     photos = []
-    supported_ext = ('.jpg', '.jpeg', '.png', '.webp')
-    
-    files = [f for f in os.listdir(SOURCE_FOLDER) if f.lower().endswith(supported_ext)]
-    print(f"📷 Found {len(files)} photos in source.")
+    for index, source_path in enumerate(files, start=1):
+        ext = source_path.suffix.lower()
+        new_name = f"{trip}-{index}{ext}"
+        destination_path = target_image_dir / new_name
+        shutil.copy2(source_path, destination_path)
 
-    # 3. Process and Copy (limiting to top 30 as requested)
-    for i, filename in enumerate(files[:30]):
-        src_path = os.path.join(SOURCE_FOLDER, filename)
-        ext = os.path.splitext(filename)[1]
-        new_filename = f"australia-{i+1}{ext}"
-        dest_path = os.path.join(TARGET_IMAGE_DIR, new_filename)
-        
-        # Copy file
-        shutil.copy2(src_path, dest_path)
-        
-        # Add to manifest
-        photos.append({
-            "src": f"images/australia/{new_filename}",
-            "title": filename.split('.')[0].replace('-', ' ').replace('_', ' '),
-            "name": filename
-        })
-        print(f"✅ Cached: {new_filename}")
+        photos.append(
+            {
+                "src": f"images/{trip}/{new_name}",
+                "title": to_title(source_path.name, f"Photo {index}"),
+                "name": source_path.name,
+            }
+        )
 
-    # 4. Save manifest
-    data_dir = os.path.dirname(TARGET_JSON_PATH)
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-        
-    with open(TARGET_JSON_PATH, 'w') as f:
-        json.dump(photos, f, indent=4)
-        
-    print(f"\n✨ Success! {len(photos)} photos cached.")
-    print(f"📄 Manifest updated: {TARGET_JSON_PATH}")
-    print("\nNext step: Run 'git add .' and push to see them on your live site!")
+    with target_json_path.open("w", encoding="utf-8") as f:
+        json.dump(photos, f, indent=2)
+
+    return len(photos), target_image_dir, target_json_path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sync local photos into website gallery cache.")
+    parser.add_argument("--source", required=True, help="Local folder containing photos.")
+    parser.add_argument("--trip", required=True, help="Trip slug, e.g. australia or dubai.")
+    parser.add_argument("--max", dest="max_files", type=int, default=None, help="Optional max number of photos to copy.")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    source_dir = Path(args.source).expanduser().resolve()
+    trip = args.trip.strip().lower().replace(" ", "-")
+
+    if not source_dir.exists() or not source_dir.is_dir():
+        print(f"ERROR: Source folder not found: {source_dir}")
+        return 1
+
+    try:
+        count, image_dir, manifest_path = sync_gallery(source_dir, trip, args.max_files)
+    except Exception as exc:
+        print(f"ERROR: Sync failed: {exc}")
+        return 1
+
+    print(f"Synced {count} photo(s).")
+    print(f"Images: {image_dir}")
+    print(f"Manifest: {manifest_path}")
+    return 0
+
 
 if __name__ == "__main__":
-    sync_gallery()
+    raise SystemExit(main())
