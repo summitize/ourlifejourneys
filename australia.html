@@ -30,9 +30,15 @@
 
     <script src="gallery.js"></script>
     <script>
-        // We use a "Local Cache" approach for reliability (Server-side static cache)
-        // Run 'python scripts/sync-gallery.py' to update these images
-        PhotoGallery.fromLocal('data/australia.json', 'australia-gallery');
+        // Load from OneDrive shared folder first, fall back to local cache if available
+        const australiaOneDriveShareLink = 'https://1drv.ms/a/c/97c5e937e7e76f1c/IgAdpW4YCcYNRaVSD1LgqJZpATYP0xKXm44REXTqb0BANCc';
+
+        PhotoGallery.loadBestSource({
+            containerId: 'australia-gallery',
+            shareLink: australiaOneDriveShareLink,
+            localJsonPath: 'data/australia.json',
+            destinationName: 'Australia'
+        });
     </script>
     <script src="script.js"></script>
 </body>
