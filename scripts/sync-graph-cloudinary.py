@@ -190,7 +190,7 @@ def fetch_share_children(share_url: str, access_token: str, max_items: int) -> l
     next_url = (
         f"{GRAPH_BASE}/shares/{share_id}/driveItem/children"
         f"?$top={min(max_items, 200)}"
-        "&$select=id,name,file,image,webUrl,@microsoft.graph.downloadUrl"
+        "&$select=id,name,file,image,webUrl,parentReference,remoteItem,@microsoft.graph.downloadUrl"
     )
     page_count = 0
     items: list[dict[str, Any]] = []
@@ -252,6 +252,14 @@ def cloudinary_upload_from_graph_items(
 
     for index, item in enumerate(image_items, start=1):
         item_id = text_or_default(item.get("id"), "")
+        remote_item = item.get("remoteItem") if isinstance(item.get("remoteItem"), dict) else {}
+        if not item_id:
+            item_id = text_or_default(remote_item.get("id"), "")
+
+        drive_id = text_or_default(item.get("parentReference", {}).get("driveId"), "")
+        if not drive_id:
+            drive_id = text_or_default(remote_item.get("parentReference", {}).get("driveId"), "")
+
         file_name = text_or_default(item.get("name"), f"photo-{index}")
         extension = Path(file_name).suffix.lower()
         if not extension:
@@ -263,6 +271,7 @@ def cloudinary_upload_from_graph_items(
         direct_download_url = text_or_default(item.get("@microsoft.graph.downloadUrl"), "")
         encoded_item_id = quote(item_id, safe="")
         encoded_name = quote(file_name, safe="")
+        encoded_drive_id = quote(drive_id, safe="")
 
         temp_path: Path | None = None
         if direct_download_url:
@@ -273,10 +282,16 @@ def cloudinary_upload_from_graph_items(
             )
         else:
             metadata_candidates = [
+                f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}"
+                "?$select=id,name,@microsoft.graph.downloadUrl",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}"
                 "?$select=id,name,@microsoft.graph.downloadUrl",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}"
                 "?$select=id,name,@microsoft.graph.downloadUrl",
+            ]
+            metadata_candidates = [
+                url for url in metadata_candidates
+                if "drives//" not in url
             ]
 
             for metadata_url in metadata_candidates:
@@ -304,9 +319,14 @@ def cloudinary_upload_from_graph_items(
 
         if temp_path is None:
             candidate_urls = [
+                f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/content",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem:/{encoded_name}:/content",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
+            ]
+            candidate_urls = [
+                url for url in candidate_urls
+                if "drives//" not in url
             ]
 
             last_error: Exception | None = None
