@@ -10,12 +10,25 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Read-ErrorResponseBody {
-    param([System.Exception]$Exception)
+    param([System.Management.Automation.ErrorRecord]$ErrorRecord)
 
     try {
-        if ($Exception.Response -and $Exception.Response.GetResponseStream()) {
-            $reader = New-Object System.IO.StreamReader($Exception.Response.GetResponseStream())
-            return $reader.ReadToEnd()
+        $details = [string]$ErrorRecord.ErrorDetails.Message
+        if ($details -and $details.Trim().Length -gt 0) {
+            return $details.Trim()
+        }
+    } catch {
+        # Ignore and try response stream fallback.
+    }
+
+    try {
+        $exception = $ErrorRecord.Exception
+        if ($exception.Response -and $exception.Response.GetResponseStream()) {
+            $reader = New-Object System.IO.StreamReader($exception.Response.GetResponseStream())
+            $raw = $reader.ReadToEnd()
+            if ($raw -and $raw.Trim().Length -gt 0) {
+                return $raw.Trim()
+            }
         }
     } catch {
         return ""
@@ -64,7 +77,7 @@ while ((Get-Date) -lt $deadline) {
         exit 0
     }
     catch {
-        $rawBody = Read-ErrorResponseBody -Exception $_.Exception
+        $rawBody = Read-ErrorResponseBody -ErrorRecord $_
         $errorCode = ""
 
         if ($rawBody) {
