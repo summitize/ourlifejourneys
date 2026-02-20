@@ -1055,6 +1055,53 @@ def main() -> int:
             )
 
             if not photos:
+                debug_items: list[dict[str, Any]] = []
+                try:
+                    if mode == "drive_item":
+                        drive_id = text_or_default(target.get("drive_id"), "")
+                        item_id = text_or_default(target.get("item_id"), "")
+                        if drive_id and item_id:
+                            debug_items = fetch_drive_children(
+                                drive_id=drive_id,
+                                item_id=item_id,
+                                access_token=access_token,
+                                max_items=20,
+                            )
+                    else:
+                        debug_items = fetch_share_children(
+                            share_url=share_url,
+                            access_token=access_token,
+                            max_items=20,
+                        )
+                except Exception as debug_exc:
+                    print(f"Debug listing failed for {trip}: {debug_exc}")
+
+                if not debug_items:
+                    print(f"Debug listing for {trip}: no children returned.")
+                else:
+                    folder_count = sum(1 for row in debug_items if is_folder_item(row))
+                    image_count = sum(1 for row in debug_items if is_image_item(row))
+                    file_count = 0
+                    for row in debug_items:
+                        remote_item = row.get("remoteItem") if isinstance(row.get("remoteItem"), dict) else {}
+                        if isinstance(row.get("file"), dict) or isinstance(remote_item.get("file"), dict):
+                            file_count += 1
+
+                    print(
+                        f"Debug listing for {trip}: total={len(debug_items)} "
+                        f"folders={folder_count} files={file_count} image_detected={image_count}"
+                    )
+                    for row in debug_items[:10]:
+                        remote_item = row.get("remoteItem") if isinstance(row.get("remoteItem"), dict) else {}
+                        name = text_or_default(row.get("name"), "") or text_or_default(remote_item.get("name"), "")
+                        mime_type = text_or_default(row.get("file", {}).get("mimeType"), "-")
+                        remote_mime_type = text_or_default(remote_item.get("file", {}).get("mimeType"), "-")
+                        has_folder = bool(isinstance(row.get("folder"), dict) or isinstance(remote_item.get("folder"), dict))
+                        has_image = bool(row.get("image") or remote_item.get("image"))
+                        print(
+                            f"- {name or '[unnamed]'} | folder={has_folder} "
+                            f"image={has_image} mime={mime_type} remote_mime={remote_mime_type}"
+                        )
                 raise RuntimeError("No image files found in shared folder.")
 
             manifest_path = write_manifest(trip, photos)
