@@ -209,6 +209,16 @@ def should_skip_existing_upload(error: Exception) -> bool:
     return "already exists" in message or "duplicate" in message
 
 
+def is_cloudinary_auth_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return (
+        "invalid signature" in message
+        or "api key" in message and "invalid" in message
+        or "authorization required" in message
+        or "must supply api_key" in message
+    )
+
+
 def get_access_token() -> str:
     client_id = required_env("MS_CLIENT_ID")
     refresh_token = required_env("MS_REFRESH_TOKEN")
@@ -474,6 +484,8 @@ def cloudinary_upload_from_graph_items(
                 }
             )
         except Exception as exc:
+            if is_cloudinary_auth_error(exc):
+                raise RuntimeError(f"Cloudinary authentication/signature failure: {exc}") from exc
             print(f"Skipped {index}/{len(image_items)} ({file_name}): {exc}")
         finally:
             if temp_path is not None:
