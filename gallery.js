@@ -680,7 +680,8 @@ class PhotoGallery {
         localJsonPath,
         destinationName = 'journey',
         defaultMode = 'auto',
-        modeStorageKey = ''
+        modeStorageKey = '',
+        showModeToggle = false
     }) {
         const hostContainer = document.getElementById(containerId);
         if (!hostContainer) return null;
@@ -695,43 +696,56 @@ class PhotoGallery {
 
         hostContainer.innerHTML = '';
 
-        const toggle = document.createElement('div');
-        toggle.className = 'view-toggle';
-        toggle.style.justifyContent = 'center';
-        toggle.style.marginBottom = '0.6rem';
+        let autoButton = null;
+        let albumButton = null;
+        let modeHint = null;
 
-        const autoButton = document.createElement('button');
-        autoButton.type = 'button';
-        autoButton.className = 'view-btn';
-        autoButton.textContent = 'Auto Gallery';
+        if (showModeToggle) {
+            const toggle = document.createElement('div');
+            toggle.className = 'view-toggle';
+            toggle.style.justifyContent = 'center';
+            toggle.style.marginBottom = '0.6rem';
 
-        const albumButton = document.createElement('button');
-        albumButton.type = 'button';
-        albumButton.className = 'view-btn';
-        albumButton.textContent = 'Direct Album';
+            autoButton = document.createElement('button');
+            autoButton.type = 'button';
+            autoButton.className = 'view-btn';
+            autoButton.textContent = 'Auto Gallery';
 
-        toggle.appendChild(autoButton);
-        toggle.appendChild(albumButton);
+            albumButton = document.createElement('button');
+            albumButton.type = 'button';
+            albumButton.className = 'view-btn';
+            albumButton.textContent = 'Direct Album';
 
-        const modeHint = document.createElement('p');
-        modeHint.style.textAlign = 'center';
-        modeHint.style.marginBottom = '1rem';
-        modeHint.style.color = 'var(--text-secondary)';
-        modeHint.style.fontSize = '0.95rem';
+            toggle.appendChild(autoButton);
+            toggle.appendChild(albumButton);
+
+            modeHint = document.createElement('p');
+            modeHint.style.textAlign = 'center';
+            modeHint.style.marginBottom = '1rem';
+            modeHint.style.color = 'var(--text-secondary)';
+            modeHint.style.fontSize = '0.95rem';
+
+            hostContainer.appendChild(toggle);
+            hostContainer.appendChild(modeHint);
+        }
 
         const content = document.createElement('div');
         content.id = contentId;
 
-        hostContainer.appendChild(toggle);
-        hostContainer.appendChild(modeHint);
         hostContainer.appendChild(content);
 
         const setModeUi = (mode) => {
-            autoButton.classList.toggle('active', mode === 'auto');
-            albumButton.classList.toggle('active', mode === 'album');
-            modeHint.textContent = mode === 'album'
-                ? 'Direct Album: opens OneDrive shared album directly.'
-                : 'Auto Gallery: API -> OneDrive -> local cache fallback.';
+            if (autoButton) {
+                autoButton.classList.toggle('active', mode === 'auto');
+            }
+            if (albumButton) {
+                albumButton.classList.toggle('active', mode === 'album');
+            }
+            if (modeHint) {
+                modeHint.textContent = mode === 'album'
+                    ? 'Direct Album: opens OneDrive shared album directly.'
+                    : 'Auto Gallery: API -> OneDrive -> local cache fallback.';
+            }
         };
 
         const applyMode = async (mode, persist) => {
@@ -756,13 +770,17 @@ class PhotoGallery {
             });
         };
 
-        autoButton.addEventListener('click', () => {
-            void applyMode('auto', true);
-        });
+        if (autoButton) {
+            autoButton.addEventListener('click', () => {
+                void applyMode('auto', true);
+            });
+        }
 
-        albumButton.addEventListener('click', () => {
-            void applyMode('album', true);
-        });
+        if (albumButton) {
+            albumButton.addEventListener('click', () => {
+                void applyMode('album', true);
+            });
+        }
 
         return applyMode(initialMode, false);
     }
