@@ -297,6 +297,35 @@ def write_manifest(trip: str, photos: list[dict[str, str]]) -> Path:
     return manifest_path
 
 
+def load_existing_manifest(trip: str) -> list[dict[str, Any]]:
+    project_root = Path(__file__).resolve().parent.parent
+    manifest_path = project_root / "data" / f"{trip}.json"
+    if not manifest_path.exists():
+        return []
+
+    try:
+        with manifest_path.open("r", encoding="utf-8") as file_obj:
+            payload = json.load(file_obj)
+    except Exception:
+        return []
+
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict) and isinstance(payload.get("photos"), list):
+        return [row for row in payload["photos"] if isinstance(row, dict)]
+    return []
+
+
+def build_existing_title_map(rows: list[dict[str, Any]]) -> dict[str, str]:
+    title_map: dict[str, str] = {}
+    for row in rows:
+        file_name = text_or_default(row.get("name"), "")
+        title = text_or_default(row.get("title"), "")
+        if file_name and title:
+            title_map[file_name] = title
+    return title_map
+
+
 def cloudinary_upload_from_graph_items(
     cloudinary: Any,
     items: list[dict[str, Any]],
@@ -304,6 +333,7 @@ def cloudinary_upload_from_graph_items(
     folder: str,
     access_token: str,
     overwrite: bool,
+    existing_titles: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     share_id = encode_sharing_url(share_url)
     manifest: list[dict[str, str]] = []
@@ -476,10 +506,13 @@ def cloudinary_upload_from_graph_items(
                 crop="limit",
             )
 
+            preserved_title = ""
+            if isinstance(existing_titles, dict):
+                preserved_title = text_or_default(existing_titles.get(file_name), "")
             manifest.append(
                 {
                     "src": optimized_url,
-                    "title": to_title(file_name, f"Photo {index}"),
+                    "title": preserved_title or to_title(file_name, f"Photo {index}"),
                     "name": file_name,
                 }
             )
@@ -557,6 +590,8 @@ def main() -> int:
 
         try:
             items = fetch_share_children(share_url, access_token, max_items=args.max_files)
+            existing_manifest_rows = load_existing_manifest(trip)
+            existing_title_map = build_existing_title_map(existing_manifest_rows)
             photos = cloudinary_upload_from_graph_items(
                 cloudinary=cloudinary,
                 items=items,
@@ -564,6 +599,7 @@ def main() -> int:
                 folder=folder,
                 access_token=access_token,
                 overwrite=args.overwrite,
+                existing_titles=existing_title_map,
             )
 
             if not photos:
