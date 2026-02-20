@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -111,8 +111,8 @@ def http_get_json(url: str, headers: dict[str, str] | None = None) -> dict[str, 
         raise RuntimeError(f"Network error for {url}: {exc}") from exc
 
 
-def fetch_binary_to_tempfile(url: str, headers: dict[str, str], suffix: str) -> Path:
-    request = Request(url=url, method="GET", headers=headers)
+def fetch_binary_to_tempfile(url: str, headers: dict[str, str] | None, suffix: str) -> Path:
+    request = Request(url=url, method="GET", headers=headers or {})
     tmp_path: Path | None = None
 
     try:
@@ -183,7 +183,7 @@ def fetch_share_children(share_url: str, access_token: str, max_items: int) -> l
     next_url = (
         f"{GRAPH_BASE}/shares/{share_id}/driveItem/children"
         f"?$top={min(max_items, 200)}"
-        "&$select=id,name,file,image,webUrl"
+        "&$select=id,name,file,image,webUrl,@microsoft.graph.downloadUrl"
     )
     page_count = 0
     items: list[dict[str, Any]] = []
@@ -253,14 +253,38 @@ def cloudinary_upload_from_graph_items(
         if not item_id:
             continue
 
-        download_url = (
-            f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{item_id}/content"
-        )
-        temp_path = fetch_binary_to_tempfile(
-            download_url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            suffix=extension,
-        )
+        direct_download_url = text_or_default(item.get("@microsoft.graph.downloadUrl"), "")
+
+        temp_path: Path | None = None
+        if direct_download_url:
+            temp_path = fetch_binary_to_tempfile(
+                direct_download_url,
+                headers=None,
+                suffix=extension,
+            )
+        else:
+            encoded_item_id = quote(item_id, safe="")
+            candidate_urls = [
+                f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
+                f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
+            ]
+
+            last_error: Exception | None = None
+            for candidate_url in candidate_urls:
+                try:
+                    temp_path = fetch_binary_to_tempfile(
+                        candidate_url,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                        suffix=extension,
+                    )
+                    break
+                except Exception as exc:
+                    last_error = exc
+
+            if temp_path is None:
+                if last_error is not None:
+                    raise last_error
+                raise RuntimeError("Could not resolve a valid download URL for item.")
 
         base_id = slugify(Path(file_name).stem)
         item_slug = slugify(item_id)[:12]
@@ -284,10 +308,11 @@ def cloudinary_upload_from_graph_items(
                 result = {"public_id": public_id}
                 print(f"Reused existing {index}/{len(image_items)}: {file_name}")
         finally:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
         uploaded_public_id = result.get("public_id", public_id)
         optimized_url, _ = cloudinary.utils.cloudinary_url(
