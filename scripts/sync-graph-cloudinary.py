@@ -111,6 +111,13 @@ def http_get_json(url: str, headers: dict[str, str] | None = None) -> dict[str, 
         raise RuntimeError(f"Network error for {url}: {exc}") from exc
 
 
+def try_http_get_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any] | None:
+    try:
+        return http_get_json(url, headers=headers)
+    except Exception:
+        return None
+
+
 def fetch_binary_to_tempfile(url: str, headers: dict[str, str] | None, suffix: str) -> Path:
     request = Request(url=url, method="GET", headers=headers or {})
     tmp_path: Path | None = None
@@ -254,6 +261,8 @@ def cloudinary_upload_from_graph_items(
             continue
 
         direct_download_url = text_or_default(item.get("@microsoft.graph.downloadUrl"), "")
+        encoded_item_id = quote(item_id, safe="")
+        encoded_name = quote(file_name, safe="")
 
         temp_path: Path | None = None
         if direct_download_url:
@@ -263,8 +272,39 @@ def cloudinary_upload_from_graph_items(
                 suffix=extension,
             )
         else:
-            encoded_item_id = quote(item_id, safe="")
+            metadata_candidates = [
+                f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}"
+                "?$select=id,name,@microsoft.graph.downloadUrl",
+                f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}"
+                "?$select=id,name,@microsoft.graph.downloadUrl",
+            ]
+
+            for metadata_url in metadata_candidates:
+                payload = try_http_get_json(
+                    metadata_url,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/json",
+                    },
+                )
+                if not payload:
+                    continue
+
+                resolved_url = text_or_default(payload.get("@microsoft.graph.downloadUrl"), "")
+                if resolved_url:
+                    direct_download_url = resolved_url
+                    break
+
+            if direct_download_url:
+                temp_path = fetch_binary_to_tempfile(
+                    direct_download_url,
+                    headers=None,
+                    suffix=extension,
+                )
+
+        if temp_path is None:
             candidate_urls = [
+                f"{GRAPH_BASE}/shares/{share_id}/driveItem:/{encoded_name}:/content",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
                 f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
             ]
