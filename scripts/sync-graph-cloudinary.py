@@ -118,6 +118,58 @@ def try_http_get_json(url: str, headers: dict[str, str] | None = None) -> dict[s
         return None
 
 
+def unique_values(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output
+
+
+def extract_thumbnail_urls(item: dict[str, Any]) -> list[str]:
+    raw = item.get("thumbnails")
+    if not isinstance(raw, list):
+        return []
+
+    urls: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("large", "medium", "small", "source", "c200x200_Crop"):
+            candidate = entry.get(key)
+            if not isinstance(candidate, dict):
+                continue
+            url = text_or_default(candidate.get("url"), "")
+            if url:
+                urls.append(url)
+    return unique_values(urls)
+
+
+def download_with_candidate_urls(
+    urls: list[str],
+    access_token: str,
+    suffix: str,
+) -> tuple[Path | None, Exception | None]:
+    last_error: Exception | None = None
+    for candidate_url in unique_values(urls):
+        try:
+            headers = (
+                {"Authorization": f"Bearer {access_token}"}
+                if candidate_url.startswith(f"{GRAPH_BASE}/")
+                else None
+            )
+            temp_path = fetch_binary_to_tempfile(candidate_url, headers=headers, suffix=suffix)
+            return temp_path, None
+        except Exception as exc:
+            last_error = exc
+    return None, last_error
+
+
 def fetch_binary_to_tempfile(url: str, headers: dict[str, str] | None, suffix: str) -> Path:
     request = Request(url=url, method="GET", headers=headers or {})
     tmp_path: Path | None = None
@@ -190,7 +242,7 @@ def fetch_share_children(share_url: str, access_token: str, max_items: int) -> l
     next_url = (
         f"{GRAPH_BASE}/shares/{share_id}/driveItem/children"
         f"?$top={min(max_items, 200)}"
-        "&$select=id,name,file,image,webUrl,parentReference,remoteItem,@microsoft.graph.downloadUrl"
+        "&$select=id,name,file,image,webUrl,parentReference,remoteItem,thumbnails,@microsoft.graph.downloadUrl"
     )
     page_count = 0
     items: list[dict[str, Any]] = []
@@ -251,104 +303,138 @@ def cloudinary_upload_from_graph_items(
         return manifest
 
     for index, item in enumerate(image_items, start=1):
-        item_id = text_or_default(item.get("id"), "")
         remote_item = item.get("remoteItem") if isinstance(item.get("remoteItem"), dict) else {}
-        if not item_id:
-            item_id = text_or_default(remote_item.get("id"), "")
+        remote_item_id = text_or_default(remote_item.get("id"), "")
+        primary_item_id = text_or_default(item.get("id"), "")
+        item_ids = unique_values([remote_item_id, primary_item_id])
+        item_id_for_slug = remote_item_id or primary_item_id
+        if not item_ids:
+            continue
 
-        drive_id = text_or_default(item.get("parentReference", {}).get("driveId"), "")
+        drive_id = text_or_default(remote_item.get("parentReference", {}).get("driveId"), "")
         if not drive_id:
-            drive_id = text_or_default(remote_item.get("parentReference", {}).get("driveId"), "")
+            drive_id = text_or_default(item.get("parentReference", {}).get("driveId"), "")
 
         file_name = text_or_default(item.get("name"), f"photo-{index}")
         extension = Path(file_name).suffix.lower()
         if not extension:
             extension = ".jpg"
 
-        if not item_id:
-            continue
-
-        direct_download_url = text_or_default(item.get("@microsoft.graph.downloadUrl"), "")
-        encoded_item_id = quote(item_id, safe="")
+        encoded_item_ids = [quote(value, safe="") for value in item_ids]
         encoded_name = quote(file_name, safe="")
         encoded_drive_id = quote(drive_id, safe="")
+        graph_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
 
         temp_path: Path | None = None
+        last_error: Exception | None = None
         try:
-            if direct_download_url:
-                temp_path = fetch_binary_to_tempfile(
-                    direct_download_url,
-                    headers=None,
-                    suffix=extension,
+            download_url_candidates = unique_values(
+                [
+                    text_or_default(item.get("@microsoft.graph.downloadUrl"), ""),
+                    text_or_default(remote_item.get("@microsoft.graph.downloadUrl"), ""),
+                    *extract_thumbnail_urls(item),
+                    *extract_thumbnail_urls(remote_item),
+                ]
+            )
+            temp_path, last_error = download_with_candidate_urls(
+                download_url_candidates,
+                access_token=access_token,
+                suffix=extension,
+            )
+
+            metadata_candidates: list[str] = []
+            for encoded_item_id in encoded_item_ids:
+                if drive_id:
+                    metadata_candidates.append(
+                        f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}"
+                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl"
+                    )
+                metadata_candidates.extend(
+                    [
+                        f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}"
+                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
+                        f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}"
+                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
+                        f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem"
+                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
+                    ]
                 )
-            else:
-                metadata_candidates = [
-                    f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}"
-                    "?$select=id,name,@microsoft.graph.downloadUrl",
-                    f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}"
-                    "?$select=id,name,@microsoft.graph.downloadUrl",
-                    f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}"
-                    "?$select=id,name,@microsoft.graph.downloadUrl",
-                ]
-                metadata_candidates = [
-                    url for url in metadata_candidates
-                    if "drives//" not in url
-                ]
-
-                for metadata_url in metadata_candidates:
-                    payload = try_http_get_json(
-                        metadata_url,
-                        headers={
-                            "Authorization": f"Bearer {access_token}",
-                            "Accept": "application/json",
-                        },
-                    )
-                    if not payload:
-                        continue
-
-                    resolved_url = text_or_default(payload.get("@microsoft.graph.downloadUrl"), "")
-                    if resolved_url:
-                        direct_download_url = resolved_url
-                        break
-
-                if direct_download_url:
-                    temp_path = fetch_binary_to_tempfile(
-                        direct_download_url,
-                        headers=None,
-                        suffix=extension,
-                    )
+            for metadata_url in unique_values(metadata_candidates):
+                payload = try_http_get_json(metadata_url, headers=graph_headers)
+                if not payload:
+                    continue
+                download_url_candidates.extend(
+                    [
+                        text_or_default(payload.get("@microsoft.graph.downloadUrl"), ""),
+                        *extract_thumbnail_urls(payload),
+                    ]
+                )
+                nested_remote_item = payload.get("remoteItem") if isinstance(payload.get("remoteItem"), dict) else {}
+                download_url_candidates.extend(
+                    [
+                        text_or_default(nested_remote_item.get("@microsoft.graph.downloadUrl"), ""),
+                        *extract_thumbnail_urls(nested_remote_item),
+                    ]
+                )
 
             if temp_path is None:
-                candidate_urls = [
-                    f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/content",
-                    f"{GRAPH_BASE}/shares/{share_id}/driveItem:/{encoded_name}:/content",
-                    f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
-                    f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
-                ]
-                candidate_urls = [
-                    url for url in candidate_urls
-                    if "drives//" not in url
-                ]
+                temp_path, last_error = download_with_candidate_urls(
+                    download_url_candidates,
+                    access_token=access_token,
+                    suffix=extension,
+                )
 
-                last_error: Exception | None = None
-                for candidate_url in candidate_urls:
-                    try:
-                        temp_path = fetch_binary_to_tempfile(
-                            candidate_url,
-                            headers={"Authorization": f"Bearer {access_token}"},
-                            suffix=extension,
+            if temp_path is None:
+                content_candidates = [f"{GRAPH_BASE}/shares/{share_id}/driveItem:/{encoded_name}:/content"]
+                for encoded_item_id in encoded_item_ids:
+                    if drive_id:
+                        content_candidates.append(
+                            f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/content"
                         )
-                        break
-                    except Exception as exc:
-                        last_error = exc
+                    content_candidates.extend(
+                        [
+                            f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
+                            f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
+                            f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem/content",
+                        ]
+                    )
+                temp_path, last_error = download_with_candidate_urls(
+                    content_candidates,
+                    access_token=access_token,
+                    suffix=extension,
+                )
 
-                if temp_path is None:
-                    if last_error is not None:
-                        raise last_error
-                    raise RuntimeError("Could not resolve a valid download URL for item.")
+            if temp_path is None:
+                thumbnail_content_candidates: list[str] = []
+                for encoded_item_id in encoded_item_ids:
+                    for size in ("large", "medium", "small"):
+                        if drive_id:
+                            thumbnail_content_candidates.append(
+                                f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/thumbnails/0/{size}/content"
+                            )
+                        thumbnail_content_candidates.extend(
+                            [
+                                f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/thumbnails/0/{size}/content",
+                                f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/thumbnails/0/{size}/content",
+                                f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem/thumbnails/0/{size}/content",
+                            ]
+                        )
+                temp_path, last_error = download_with_candidate_urls(
+                    thumbnail_content_candidates,
+                    access_token=access_token,
+                    suffix=extension,
+                )
+
+            if temp_path is None:
+                if last_error is not None:
+                    raise last_error
+                raise RuntimeError("Could not resolve a valid download URL for item.")
 
             base_id = slugify(Path(file_name).stem)
-            item_slug = slugify(item_id)[:12]
+            item_slug = slugify(item_id_for_slug)[:12]
             public_leaf = f"{base_id}-{item_slug}" if item_slug else base_id
             public_id = f"{folder.strip('/')}/{public_leaf}" if folder.strip("/") else public_leaf
 
