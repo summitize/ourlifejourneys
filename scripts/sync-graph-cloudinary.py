@@ -87,7 +87,7 @@ def encode_sharing_url(url: str) -> str:
     )
 
 
-def parse_trip_map(raw_json: str) -> dict[str, str]:
+def parse_trip_map(raw_json: str) -> dict[str, dict[str, str]]:
     try:
         parsed = json.loads(raw_json)
     except json.JSONDecodeError as exc:
@@ -96,16 +96,52 @@ def parse_trip_map(raw_json: str) -> dict[str, str]:
     if not isinstance(parsed, dict):
         raise ValueError("Trip map must be a JSON object: {\"trip\":\"share_url\"}")
 
-    normalized: dict[str, str] = {}
-    for trip_key, share_url in parsed.items():
-        if not isinstance(trip_key, str) or not isinstance(share_url, str):
-            raise ValueError("Trip map keys and values must be strings.")
+    normalized: dict[str, dict[str, str]] = {}
+    for trip_key, raw_value in parsed.items():
+        if not isinstance(trip_key, str):
+            raise ValueError("Trip map keys must be strings.")
 
         trip = slugify(trip_key)
-        link = share_url.strip()
-        if not link:
-            raise ValueError(f"Trip '{trip_key}' has empty share URL.")
-        normalized[trip] = link
+        if isinstance(raw_value, str):
+            link = raw_value.strip()
+            if not link:
+                raise ValueError(f"Trip '{trip_key}' has empty share URL.")
+            normalized[trip] = {
+                "mode": "single",
+                "share_url": link,
+                "trip_label": trip_key.strip() or trip,
+            }
+            continue
+
+        if not isinstance(raw_value, dict):
+            raise ValueError(
+                "Trip map values must be either a share URL string or an object config."
+            )
+
+        share_url = text_or_default(raw_value.get("share_url"), "")
+        if not share_url:
+            share_url = text_or_default(raw_value.get("url"), "")
+        if not share_url:
+            raise ValueError(f"Trip '{trip_key}' object config is missing share_url.")
+
+        children_flag = str(raw_value.get("children_as_trips", "")).strip().lower()
+        expand_children = children_flag in ("1", "true", "yes", "on")
+        if not children_flag and isinstance(raw_value.get("children_as_trips"), bool):
+            expand_children = bool(raw_value.get("children_as_trips"))
+
+        if expand_children:
+            normalized[trip] = {
+                "mode": "children",
+                "share_url": share_url,
+                "trip_prefix": text_or_default(raw_value.get("trip_prefix"), ""),
+            }
+            continue
+
+        normalized[trip] = {
+            "mode": "single",
+            "share_url": share_url,
+            "trip_label": text_or_default(raw_value.get("trip_label"), trip_key.strip() or trip),
+        }
 
     if not normalized:
         raise ValueError("Trip map is empty.")
@@ -286,7 +322,7 @@ def fetch_share_children(share_url: str, access_token: str, max_items: int) -> l
     next_url = (
         f"{GRAPH_BASE}/shares/{share_id}/driveItem/children"
         f"?$top={min(max_items, 200)}"
-        "&$select=id,name,file,image,webUrl,parentReference,remoteItem,thumbnails,@microsoft.graph.downloadUrl"
+        "&$select=id,name,file,folder,image,webUrl,parentReference,remoteItem,thumbnails,@microsoft.graph.downloadUrl"
     )
     page_count = 0
     items: list[dict[str, Any]] = []
@@ -307,6 +343,140 @@ def fetch_share_children(share_url: str, access_token: str, max_items: int) -> l
             break
 
     return items[:max_items]
+
+
+def fetch_drive_children(
+    drive_id: str,
+    item_id: str,
+    access_token: str,
+    max_items: int,
+) -> list[dict[str, Any]]:
+    encoded_drive_id = quote(drive_id, safe="")
+    encoded_item_id = quote(item_id, safe="")
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+    next_url = (
+        f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/children"
+        f"?$top={min(max_items, 200)}"
+        "&$select=id,name,file,folder,image,webUrl,parentReference,remoteItem,thumbnails,@microsoft.graph.downloadUrl"
+    )
+    page_count = 0
+    items: list[dict[str, Any]] = []
+
+    while next_url:
+        payload = http_get_json(next_url, headers=headers)
+        page_items = payload.get("value", [])
+        if isinstance(page_items, list):
+            items.extend([row for row in page_items if isinstance(row, dict)])
+
+        if len(items) >= max_items:
+            break
+
+        next_link = payload.get("@odata.nextLink")
+        next_url = next_link if isinstance(next_link, str) and next_link.strip() else ""
+        page_count += 1
+        if page_count > 20:
+            break
+
+    return items[:max_items]
+
+
+def is_folder_item(item: dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if isinstance(item.get("folder"), dict):
+        return True
+    remote_item = item.get("remoteItem") if isinstance(item.get("remoteItem"), dict) else {}
+    return isinstance(remote_item.get("folder"), dict)
+
+
+def resolve_item_ids(item: dict[str, Any]) -> tuple[str, str]:
+    remote_item = item.get("remoteItem") if isinstance(item.get("remoteItem"), dict) else {}
+    item_id = text_or_default(remote_item.get("id"), "") or text_or_default(item.get("id"), "")
+
+    drive_id = text_or_default(
+        remote_item.get("parentReference", {}).get("driveId"),
+        "",
+    )
+    if not drive_id:
+        drive_id = text_or_default(item.get("parentReference", {}).get("driveId"), "")
+
+    return item_id, drive_id
+
+
+def expand_trip_targets(
+    trip_map: dict[str, dict[str, str]],
+    access_token: str,
+    max_items: int,
+) -> list[dict[str, str]]:
+    trip_targets: list[dict[str, str]] = []
+    seen_trips: set[str] = set()
+
+    for trip in sorted(trip_map.keys()):
+        config = trip_map[trip]
+        mode = text_or_default(config.get("mode"), "single")
+        share_url = text_or_default(config.get("share_url"), "")
+        if not share_url:
+            raise ValueError(f"Trip config '{trip}' is missing share_url.")
+
+        if mode == "children":
+            child_items = fetch_share_children(share_url, access_token, max_items=200)
+            folder_items = [row for row in child_items if is_folder_item(row)]
+            folder_items.sort(key=lambda row: text_or_default(row.get("name"), "").lower())
+            if not folder_items:
+                raise RuntimeError(
+                    f"Trip '{trip}' is configured with children_as_trips but no subfolders were found."
+                )
+
+            prefix = text_or_default(config.get("trip_prefix"), "")
+            for folder_item in folder_items:
+                folder_name = text_or_default(folder_item.get("name"), "")
+                if not folder_name:
+                    continue
+
+                base_trip = slugify(folder_name)
+                expanded_trip = f"{slugify(prefix)}-{base_trip}" if prefix else base_trip
+                if expanded_trip in seen_trips:
+                    raise ValueError(
+                        f"Duplicate trip key '{expanded_trip}' derived from folder '{folder_name}'."
+                    )
+
+                folder_item_id, folder_drive_id = resolve_item_ids(folder_item)
+                if not folder_item_id or not folder_drive_id:
+                    raise RuntimeError(
+                        f"Could not resolve drive/item ids for subfolder '{folder_name}'."
+                    )
+
+                trip_targets.append(
+                    {
+                        "trip": expanded_trip,
+                        "trip_label": folder_name,
+                        "mode": "drive_item",
+                        "share_url": share_url,
+                        "drive_id": folder_drive_id,
+                        "item_id": folder_item_id,
+                    }
+                )
+                seen_trips.add(expanded_trip)
+            continue
+
+        if trip in seen_trips:
+            raise ValueError(f"Duplicate trip key '{trip}'.")
+        trip_targets.append(
+            {
+                "trip": trip,
+                "trip_label": text_or_default(config.get("trip_label"), trip.replace("-", " ").title()),
+                "mode": "share",
+                "share_url": share_url,
+                "drive_id": "",
+                "item_id": "",
+            }
+        )
+        seen_trips.add(trip)
+
+    return trip_targets
 
 
 def load_cloudinary_sdk():
@@ -375,7 +545,7 @@ def cloudinary_upload_from_graph_items(
     trip_label: str,
     existing_metadata: dict[str, dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
-    share_id = encode_sharing_url(share_url)
+    share_id = encode_sharing_url(share_url) if share_url else ""
     manifest: list[dict[str, str]] = []
 
     image_items = [item for item in items if is_image_item(item)]
@@ -432,16 +602,17 @@ def cloudinary_upload_from_graph_items(
                         f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}"
                         "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl"
                     )
-                metadata_candidates.extend(
-                    [
-                        f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}"
-                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
-                        f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}"
-                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
-                        f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem"
-                        "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
-                    ]
-                )
+                if share_id:
+                    metadata_candidates.extend(
+                        [
+                            f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}"
+                            "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
+                            f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}"
+                            "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
+                            f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem"
+                            "?$select=id,name,remoteItem,thumbnails,@microsoft.graph.downloadUrl",
+                        ]
+                    )
             for metadata_url in unique_values(metadata_candidates):
                 payload = try_http_get_json(metadata_url, headers=graph_headers)
                 if not payload:
@@ -468,19 +639,24 @@ def cloudinary_upload_from_graph_items(
                 )
 
             if temp_path is None:
-                content_candidates = [f"{GRAPH_BASE}/shares/{share_id}/driveItem:/{encoded_name}:/content"]
+                content_candidates = []
+                if share_id:
+                    content_candidates.append(
+                        f"{GRAPH_BASE}/shares/{share_id}/driveItem:/{encoded_name}:/content"
+                    )
                 for encoded_item_id in encoded_item_ids:
                     if drive_id:
                         content_candidates.append(
                             f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/content"
                         )
-                    content_candidates.extend(
-                        [
-                            f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
-                            f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
-                            f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem/content",
-                        ]
-                    )
+                    if share_id:
+                        content_candidates.extend(
+                            [
+                                f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/content",
+                                f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/content",
+                                f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem/content",
+                            ]
+                        )
                 temp_path, last_error = download_with_candidate_urls(
                     content_candidates,
                     access_token=access_token,
@@ -495,13 +671,14 @@ def cloudinary_upload_from_graph_items(
                             thumbnail_content_candidates.append(
                                 f"{GRAPH_BASE}/drives/{encoded_drive_id}/items/{encoded_item_id}/thumbnails/0/{size}/content"
                             )
-                        thumbnail_content_candidates.extend(
-                            [
-                                f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/thumbnails/0/{size}/content",
-                                f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/thumbnails/0/{size}/content",
-                                f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem/thumbnails/0/{size}/content",
-                            ]
-                        )
+                        if share_id:
+                            thumbnail_content_candidates.extend(
+                                [
+                                    f"{GRAPH_BASE}/shares/{share_id}/driveItem/children/{encoded_item_id}/thumbnails/0/{size}/content",
+                                    f"{GRAPH_BASE}/shares/{share_id}/driveItem/items/{encoded_item_id}/thumbnails/0/{size}/content",
+                                    f"{GRAPH_BASE}/shares/{share_id}/items/{encoded_item_id}/driveItem/thumbnails/0/{size}/content",
+                                ]
+                            )
                 temp_path, last_error = download_with_candidate_urls(
                     thumbnail_content_candidates,
                     access_token=access_token,
@@ -584,7 +761,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--map-json",
         default="",
-        help='Trip map JSON, e.g. {"australia":"https://1drv.ms/..."}; falls back to TRIP_SHARE_URLS_JSON env var',
+        help=(
+            'Trip map JSON. Examples: {"australia":"https://1drv.ms/..."} '
+            'or {"india":{"share_url":"https://1drv.ms/...","children_as_trips":true}}; '
+            "falls back to TRIP_SHARE_URLS_JSON env var"
+        ),
     )
     parser.add_argument(
         "--folder-prefix",
@@ -629,17 +810,38 @@ def main() -> int:
         print(f"ERROR obtaining Graph access token: {exc}")
         return 1
 
+    try:
+        trip_targets = expand_trip_targets(trip_map, access_token, max_items=args.max_files)
+    except Exception as exc:
+        print(f"ERROR while expanding trip targets: {exc}")
+        return 1
+
     failures: list[str] = []
-    for trip in sorted(trip_map.keys()):
-        share_url = trip_map[trip]
+    for target in trip_targets:
+        trip = target["trip"]
+        share_url = target.get("share_url", "")
+        mode = target.get("mode", "share")
+        trip_label = text_or_default(target.get("trip_label"), trip.replace("-", " ").title())
         folder = f"{args.folder_prefix.strip('/')}/{trip}"
         print(f"\n=== Syncing trip: {trip} ===")
 
         try:
-            items = fetch_share_children(share_url, access_token, max_items=args.max_files)
+            if mode == "drive_item":
+                drive_id = text_or_default(target.get("drive_id"), "")
+                item_id = text_or_default(target.get("item_id"), "")
+                if not drive_id or not item_id:
+                    raise RuntimeError("Missing drive_id/item_id for drive_item trip mode.")
+                items = fetch_drive_children(
+                    drive_id=drive_id,
+                    item_id=item_id,
+                    access_token=access_token,
+                    max_items=args.max_files,
+                )
+            else:
+                items = fetch_share_children(share_url, access_token, max_items=args.max_files)
+
             existing_manifest_rows = load_existing_manifest(trip)
             existing_metadata_map = build_existing_metadata_map(existing_manifest_rows)
-            trip_label = trip.replace("-", " ").title()
             photos = cloudinary_upload_from_graph_items(
                 cloudinary=cloudinary,
                 items=items,
