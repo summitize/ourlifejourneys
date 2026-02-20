@@ -691,8 +691,14 @@ class PhotoGallery {
             modeStorageKey,
             `photo-gallery-mode:${containerId}`
         );
-        const initialMode = PhotoGallery.getInitialSourceMode(storageKey, normalizedDefaultMode);
+        const initialMode = showModeToggle
+            ? PhotoGallery.getInitialSourceMode(storageKey, normalizedDefaultMode)
+            : normalizedDefaultMode;
         const contentId = `${containerId}__content`;
+
+        if (!showModeToggle) {
+            PhotoGallery.safeLocalStorageSet(storageKey, normalizedDefaultMode);
+        }
 
         hostContainer.innerHTML = '';
 
