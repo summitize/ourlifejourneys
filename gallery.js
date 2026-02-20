@@ -258,6 +258,54 @@ class PhotoGallery {
         `;
     }
 
+    static renderNoPhotos(container, destinationName) {
+        if (!container) return;
+
+        const safeDestination = PhotoGallery.escapeHtml(
+            PhotoGallery.textOrDefault(destinationName, 'this destination')
+        );
+        container.innerHTML = `
+            <div class="gallery-coming-soon">
+                <h3>No Photos to Show</h3>
+                <p>No photos are available yet for ${safeDestination}.</p>
+            </div>
+        `;
+    }
+
+    static classifyLoadState(message, statusCode = 0) {
+        const normalized = PhotoGallery.textOrDefault(message, '').toLowerCase();
+
+        if (
+            normalized.includes('no image files')
+            || normalized.includes('no image entries')
+            || normalized.includes('does not contain images')
+            || normalized.includes('no photos')
+            || normalized.includes('empty manifest')
+        ) {
+            return 'empty';
+        }
+
+        if (
+            statusCode === 404
+            || normalized.includes('not found')
+            || normalized.includes('manifest not found')
+            || normalized.includes('missing')
+        ) {
+            return 'missing';
+        }
+
+        return 'error';
+    }
+
+    static renderStatusFallback(container, destinationName, state) {
+        if (state === 'empty') {
+            PhotoGallery.renderNoPhotos(container, destinationName);
+            return;
+        }
+
+        PhotoGallery.renderComingSoon(container, destinationName);
+    }
+
     static escapeHtml(value) {
         return String(value)
             .replace(/&/g, '&amp;')
@@ -426,13 +474,17 @@ class PhotoGallery {
             description = 'Captured during the journey.',
             destinationName = 'this trip'
         } = options;
+        let responseStatus = 0;
 
         try {
+            PhotoGallery.lastApiState = 'success';
+            PhotoGallery.lastApiErrorMessage = '';
             PhotoGallery.renderLoading(container, 'Loading photos from gallery API...');
 
             const response = await fetch(apiEndpoint, {
                 headers: { Accept: 'application/json' }
             });
+            responseStatus = response.status;
             if (!response.ok) {
                 throw new Error(`Gallery API request failed (${response.status}).`);
             }
@@ -445,17 +497,20 @@ class PhotoGallery {
             }
 
             if (container) container.innerHTML = '';
+            PhotoGallery.lastApiState = 'success';
             gallery.init();
             return gallery;
         } catch (error) {
             console.error('Gallery API load failed:', error);
-            PhotoGallery.lastApiErrorMessage = PhotoGallery.textOrDefault(
+            const message = PhotoGallery.textOrDefault(
                 error && error.message,
                 'Could not connect to gallery API.'
             );
+            PhotoGallery.lastApiErrorMessage = message;
+            PhotoGallery.lastApiState = PhotoGallery.classifyLoadState(message, responseStatus);
 
             if (container && !suppressErrorUi) {
-                PhotoGallery.renderComingSoon(container, destinationName);
+                PhotoGallery.renderStatusFallback(container, destinationName, PhotoGallery.lastApiState);
             }
             return null;
         }
@@ -469,9 +524,12 @@ class PhotoGallery {
             description = 'Memories from this trip.',
             destinationName = 'this trip'
         } = options;
+        let responseStatus = 0;
 
         try {
+            PhotoGallery.lastLocalState = 'success';
             const response = await fetch(jsonPath);
+            responseStatus = response.status;
             if (!response.ok) {
                 throw new Error('Local manifest not found.');
             }
@@ -483,12 +541,18 @@ class PhotoGallery {
                 throw new Error('Local manifest does not contain images.');
             }
 
+            PhotoGallery.lastLocalState = 'success';
             gallery.init();
             return gallery;
         } catch (error) {
             console.error('Local gallery load failed:', error);
+            const message = PhotoGallery.textOrDefault(
+                error && error.message,
+                'Could not load local gallery.'
+            );
+            PhotoGallery.lastLocalState = PhotoGallery.classifyLoadState(message, responseStatus);
             if (container && !suppressErrorUi) {
-                PhotoGallery.renderComingSoon(container, destinationName);
+                PhotoGallery.renderStatusFallback(container, destinationName, PhotoGallery.lastLocalState);
             }
             return null;
         }
@@ -504,6 +568,7 @@ class PhotoGallery {
         } = options;
 
         try {
+            PhotoGallery.lastOneDriveState = 'success';
             PhotoGallery.lastOneDriveErrorMessage = '';
             PhotoGallery.renderLoading(container, 'Loading photos from OneDrive...');
 
@@ -515,17 +580,20 @@ class PhotoGallery {
             }
 
             if (container) container.innerHTML = '';
+            PhotoGallery.lastOneDriveState = 'success';
             gallery.init();
             return gallery;
         } catch (error) {
             console.error('OneDrive gallery load failed:', error);
-            PhotoGallery.lastOneDriveErrorMessage = PhotoGallery.textOrDefault(
+            const message = PhotoGallery.textOrDefault(
                 error && error.message,
                 'Could not connect to OneDrive.'
             );
+            PhotoGallery.lastOneDriveErrorMessage = message;
+            PhotoGallery.lastOneDriveState = PhotoGallery.classifyLoadState(message, 0);
 
             if (container && !suppressErrorUi) {
-                PhotoGallery.renderComingSoon(container, destinationName);
+                PhotoGallery.renderStatusFallback(container, destinationName, PhotoGallery.lastOneDriveState);
             }
             return null;
         }
@@ -543,6 +611,7 @@ class PhotoGallery {
         const hasShareLink = PhotoGallery.isConfiguredShareLink(shareLink);
         let apiErrorMessage = '';
         let oneDriveErrorMessage = '';
+        const statusSignals = [];
 
         if (hasApiEndpoint) {
             const apiGallery = await PhotoGallery.fromApi(apiEndpoint.trim(), containerId, {
@@ -555,6 +624,7 @@ class PhotoGallery {
                 return apiGallery;
             }
 
+            statusSignals.push(PhotoGallery.textOrDefault(PhotoGallery.lastApiState, 'error'));
             apiErrorMessage = PhotoGallery.textOrDefault(
                 PhotoGallery.lastApiErrorMessage,
                 ''
@@ -572,6 +642,7 @@ class PhotoGallery {
                 return remoteGallery;
             }
 
+            statusSignals.push(PhotoGallery.textOrDefault(PhotoGallery.lastOneDriveState, 'error'));
             oneDriveErrorMessage = PhotoGallery.textOrDefault(
                 PhotoGallery.lastOneDriveErrorMessage,
                 ''
@@ -581,12 +652,15 @@ class PhotoGallery {
         if (typeof localJsonPath === 'string' && localJsonPath.trim().length > 0) {
             const localGallery = await PhotoGallery.fromLocal(localJsonPath, containerId, {
                 suppressErrorUi: true,
-                description
+                description,
+                destinationName
             });
 
             if (localGallery) {
                 return localGallery;
             }
+
+            statusSignals.push(PhotoGallery.textOrDefault(PhotoGallery.lastLocalState, 'error'));
         }
 
         const container = document.getElementById(containerId);
@@ -597,7 +671,12 @@ class PhotoGallery {
             if (mergedFailureMessage) {
                 console.warn(`Gallery load fallback for ${destinationName}: ${mergedFailureMessage}`);
             }
-            PhotoGallery.renderComingSoon(container, destinationName);
+
+            if (statusSignals.includes('empty')) {
+                PhotoGallery.renderNoPhotos(container, destinationName);
+            } else {
+                PhotoGallery.renderComingSoon(container, destinationName);
+            }
         }
 
         return null;
