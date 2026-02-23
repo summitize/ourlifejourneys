@@ -32,9 +32,59 @@
                         <a href="#about" class="btn btn-secondary">About Me</a>
                     </div>
                 </div>
-                <div class="hero-image">
-                    <img src="photos/landing_page.png" alt="WanderToWonder - Global Adventures" id="hero-img"
-                        onerror="this.style.display='none'; this.parentElement.classList.add('img-failed');">
+                <div class="hero-image hero-map-shell" id="journey-map-explorer">
+                    <p class="hero-map-intro">Visited Destinations Explorer</p>
+
+                    <div class="map-option-toggle" role="tablist" aria-label="Map representation options">
+                        <button class="map-option-btn active" id="map-tab-real" data-map-option="real" role="tab"
+                            aria-selected="true" aria-controls="map-panel-real">
+                            <span class="map-tab-icon map-tab-icon-real" aria-hidden="true"></span>
+                            Real Map
+                        </button>
+                        <button class="map-option-btn" id="map-tab-globe" data-map-option="globe" role="tab"
+                            aria-selected="false" aria-controls="map-panel-globe">
+                            <span class="map-tab-icon map-tab-icon-globe" aria-hidden="true"></span>
+                            Globe View
+                        </button>
+                        <button class="map-option-btn" id="map-tab-timeline" data-map-option="timeline" role="tab"
+                            aria-selected="false" aria-controls="map-panel-timeline">
+                            <span class="map-tab-icon map-tab-icon-focus" aria-hidden="true"></span>
+                            Destination Focus
+                        </button>
+                    </div>
+
+                    <div class="map-option-panels">
+                        <section class="map-panel is-active" id="map-panel-real" role="tabpanel"
+                            aria-labelledby="map-tab-real">
+                            <div class="map-canvas" id="journey-real-map"
+                                aria-label="Interactive map showing visited destinations as disconnected points"></div>
+                        </section>
+
+                        <section class="map-panel" id="map-panel-globe" role="tabpanel" aria-labelledby="map-tab-globe"
+                            hidden>
+                            <div class="map-canvas" id="journey-globe-map"
+                                aria-label="Animated globe showing visited destinations as disconnected points"></div>
+                        </section>
+
+                        <section class="map-panel" id="map-panel-timeline" role="tabpanel"
+                            aria-labelledby="map-tab-timeline" hidden>
+                            <div class="timeline-layout">
+                                <div class="timeline-map-wrap">
+                                    <div class="map-canvas timeline-map-canvas" id="journey-timeline-map"
+                                        aria-label="Destination focus map with disconnected points"></div>
+                                </div>
+                                <aside class="timeline-side">
+                                    <div class="timeline-controls">
+                                        <label for="journey-step-range">Destination</label>
+                                        <input type="range" id="journey-step-range" min="1" max="6" value="1">
+                                        <button type="button" class="timeline-play-btn" id="journey-play-btn">Play
+                                            Spots</button>
+                                    </div>
+                                    <ol class="timeline-list" id="journey-step-list"></ol>
+                                </aside>
+                            </div>
+                        </section>
+                    </div>
                 </div>
             </div>
         </section>
@@ -118,58 +168,6 @@
                             </div>
                         </article>
                     </div>
-                </div>
-            </div>
-        </section>
-
-        <section id="travel-map" class="section map-explorer-section">
-            <div class="container">
-                <h2 class="section-title">Journey <span class="text-highlight">Map Explorer</span></h2>
-                <p class="map-explorer-subtitle">Switch between three map styles to explore all visited destinations.</p>
-
-                <div class="map-option-toggle" role="tablist" aria-label="Map representation options">
-                    <button class="map-option-btn active" id="map-tab-real" data-map-option="real" role="tab"
-                        aria-selected="true" aria-controls="map-panel-real">
-                        3. Real Map
-                    </button>
-                    <button class="map-option-btn" id="map-tab-globe" data-map-option="globe" role="tab"
-                        aria-selected="false" aria-controls="map-panel-globe">
-                        4. Animated Globe
-                    </button>
-                    <button class="map-option-btn" id="map-tab-timeline" data-map-option="timeline" role="tab"
-                        aria-selected="false" aria-controls="map-panel-timeline">
-                        5. Timeline Journey
-                    </button>
-                </div>
-
-                <div class="map-option-panels">
-                    <section class="map-panel is-active" id="map-panel-real" role="tabpanel" aria-labelledby="map-tab-real">
-                        <div class="map-canvas" id="journey-real-map"
-                            aria-label="Interactive map showing visited destinations with route"></div>
-                    </section>
-
-                    <section class="map-panel" id="map-panel-globe" role="tabpanel" aria-labelledby="map-tab-globe" hidden>
-                        <div class="map-canvas" id="journey-globe-map"
-                            aria-label="Animated globe showing visited destinations"></div>
-                    </section>
-
-                    <section class="map-panel" id="map-panel-timeline" role="tabpanel" aria-labelledby="map-tab-timeline"
-                        hidden>
-                        <div class="timeline-layout">
-                            <div class="timeline-map-wrap">
-                                <div class="map-canvas timeline-map-canvas" id="journey-timeline-map"
-                                    aria-label="Timeline route map"></div>
-                            </div>
-                            <aside class="timeline-side">
-                                <div class="timeline-controls">
-                                    <label for="journey-step-range">Journey step</label>
-                                    <input type="range" id="journey-step-range" min="1" max="6" value="6">
-                                    <button type="button" class="timeline-play-btn" id="journey-play-btn">Play Route</button>
-                                </div>
-                                <ol class="timeline-list" id="journey-step-list"></ol>
-                            </aside>
-                        </div>
-                    </section>
                 </div>
             </div>
         </section>
