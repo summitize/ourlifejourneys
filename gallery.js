@@ -1050,6 +1050,26 @@ class PhotoGallery {
         document.body.appendChild(lightbox);
         this.updateLightbox(lightbox);
         document.body.style.overflow = 'hidden';
+        this.requestLightboxFullscreen(lightbox);
+    }
+
+    requestLightboxFullscreen(lightbox) {
+        if (!lightbox) return;
+
+        const requestFullscreen = lightbox.requestFullscreen
+            || lightbox.webkitRequestFullscreen
+            || lightbox.msRequestFullscreen;
+
+        if (typeof requestFullscreen !== 'function') return;
+
+        try {
+            const result = requestFullscreen.call(lightbox);
+            if (result && typeof result.catch === 'function') {
+                result.catch(() => { });
+            }
+        } catch (_) {
+            // Keep overlay fallback when browser blocks fullscreen requests.
+        }
     }
 
     createLightbox() {
@@ -1145,6 +1165,20 @@ class PhotoGallery {
 
     closeLightbox() {
         const lightbox = document.getElementById('photo-lightbox');
+        const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+        if (fullscreenElement === lightbox) {
+            const exitFullscreen = document.exitFullscreen
+                || document.webkitExitFullscreen
+                || document.msExitFullscreen;
+            if (typeof exitFullscreen === 'function') {
+                try {
+                    exitFullscreen.call(document);
+                } catch (_) {
+                    // Ignore if browser exits fullscreen automatically.
+                }
+            }
+        }
+
         if (lightbox) {
             lightbox.remove();
         }
