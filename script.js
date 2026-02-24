@@ -97,6 +97,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial theme check
     const savedTheme = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-theme', savedTheme);
+
+    // Native Web Share API
+    const shareBtn = document.getElementById('share-btn');
+    if (shareBtn) {
+        shareBtn.addEventListener('click', async () => {
+            try {
+                await navigator.share({
+                    title: document.title,
+                    text: 'Check out this travel journal from WanderToWonder!',
+                    url: window.location.href,
+                });
+            } catch (err) {
+                // Fallback for browsers that don't support Web Share API
+                console.log('Share failed:', err);
+                const dummy = document.createElement('input');
+                document.body.appendChild(dummy);
+                dummy.value = window.location.href;
+                dummy.select();
+                document.execCommand('copy');
+                document.body.removeChild(dummy);
+
+                const originalText = shareBtn.innerHTML;
+                shareBtn.innerHTML = '✅ Link Copied!';
+                setTimeout(() => { shareBtn.innerHTML = originalText; }, 2000);
+            }
+        });
+    }
 });
 
 function initializeTheme() {

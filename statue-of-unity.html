@@ -4,7 +4,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Statue of Unity | WanderToWonder</title>
+    <title>Statue of Unity Journal | WanderToWonder</title>
+    <meta name="description"
+        content="Explore my travel experience at the Statue of Unity - the world's tallest statue in Gujarat, India.">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://summitize.github.io/WanderToWonder/statue-of-unity.html">
+    <meta property="og:title" content="Statue of Unity Journey | WanderToWonder">
+    <meta property="og:description"
+        content="World's Tallest Statue - A Marvel in Gujarat, India. Read the full travel journal.">
+    <meta property="og:image" content="https://summitize.github.io/WanderToWonder/photos/statue-of-unity/hero.jpg">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:title" content="Statue of Unity Journey | WanderToWonder">
+    <meta property="twitter:description" content="World's Tallest Statue - A Marvel in Gujarat, India.">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": "Statue of Unity Journey",
+      "image": "https://summitize.github.io/WanderToWonder/photos/statue-of-unity/hero.jpg",
+      "author": {
+        "@type": "Person",
+        "name": "Sumeet Boob"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "WanderToWonder"
+      },
+      "url": "https://summitize.github.io/WanderToWonder/statue-of-unity.html"
+    }
+    </script>
+
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap"
         rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
@@ -18,6 +53,9 @@
         <section class="page-header">
             <h1 class="page-title">Statue of Unity</h1>
             <p class="page-subtitle">World's Tallest Statue - A Marvel in Gujarat, India</p>
+            <button class="btn btn-secondary share-page-btn" id="share-btn">
+                <span>📤</span> Share Journal
+            </button>
         </section>
 
         <div class="content-section">
@@ -25,6 +63,21 @@
                 <div id="statue-gallery"></div>
             </div>
         </div>
+
+        <!-- Comments Section -->
+        <section class="section comments-section">
+            <div class="container">
+                <h2 class="section-title">Travel <span class="text-highlight">Discussions</span></h2>
+                <div class="giscus-wrapper">
+                    <script src="https://giscus.app/client.js" data-repo="summitize/WanderToWonder"
+                        data-repo-id="R_kgDONSz64w" data-category="Announcements"
+                        data-category-id="DIC_kwDONSz6484CklO3" data-mapping="pathname" data-strict="0"
+                        data-reactions-enabled="1" data-emit-metadata="0" data-input-position="bottom"
+                        data-theme="preferred_color_scheme" data-lang="en" crossorigin="anonymous" async>
+                        </script>
+                </div>
+            </div>
+        </section>
     </main>
 
     <div id="footer-placeholder"></div>
